@@ -64,7 +64,7 @@ def get_pred(rank, world_size, data, max_length, max_gen, prompt_format, dataset
 
         pred = tokenizer.decode(output[context_length:], skip_special_tokens=True)
         with open(out_path, "a", encoding="utf-8") as f:
-            json.dump({"pred": pred, "answers": json_obj["answers"], "all_classes": json_obj["all_classes"], "length": json_obj["length"], "length_filtered": average_tokens_in_kv_cache}, f, ensure_ascii=False)
+            json.dump({"pred": pred, "answers": json_obj["answers"], "all_classes": json_obj["all_classes"], "length": json_obj["length"], "total": output.size(0), "total_filtered": round(average_tokens_in_kv_cache)}, f, ensure_ascii=False)
             f.write('\n')
     dist.destroy_process_group()
 
