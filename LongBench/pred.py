@@ -2,7 +2,7 @@ import os
 from datasets import load_dataset
 import torch
 import json
-from transformers import AutoTokenizer, LlamaTokenizer, LlamaForCausalLM, AutoModelForCausalLM
+from transformers import AutoTokenizer, LlamaTokenizer, LlamaForCausalLM, AutoModelForCausalLM, DynamicCache
 from tqdm import tqdm
 import numpy as np
 import random
@@ -36,23 +36,35 @@ def get_pred(rank, world_size, data, max_length, max_gen, prompt_format, dataset
         prompt = prompt_format.format(**json_obj)
         inputs = build_chat(tokenizer, prompt, model_name).to(device)
         context_length = inputs["input_ids"].shape[-1]
+
+        past_key_values = DynamicCache()
         if dataset == "samsum": # prevent illegal output on samsum (model endlessly repeat "\nDialogue"), might be a prompting issue
             output = model.generate(
                 **inputs,
                 max_new_tokens=max_gen,
                 min_length=context_length+1,
                 eos_token_id=[tokenizer.eos_token_id, tokenizer.encode("\n", add_special_tokens=False)[-1]],
-                pad_token_id=tokenizer.eos_token_id
+                pad_token_id=tokenizer.eos_token_id,
+                past_key_values=past_key_values
             )[0]
         else:
             output = model.generate(
                 **inputs,
                 max_new_tokens=max_gen,
-                pad_token_id=tokenizer.eos_token_id
+                pad_token_id=tokenizer.eos_token_id,
+                past_key_values=past_key_values
             )[0]
+
+        num_tokens_in_kv_cache = []
+        for layer_idx in range(len(past_key_values.gated_key_cache)):
+            for b in range(len(past_key_values.gated_key_cache[layer_idx])):
+                for h in range(len(past_key_values.gated_key_cache[layer_idx][b])):
+                    num_tokens_in_kv_cache.append(past_key_values.gated_key_cache[layer_idx][b][h][past_key_values.gated_valid_idx[layer_idx][b][h]:].size(0))
+        average_tokens_in_kv_cache = sum(num_tokens_in_kv_cache) / len(num_tokens_in_kv_cache)
+
         pred = tokenizer.decode(output[context_length:], skip_special_tokens=True)
         with open(out_path, "a", encoding="utf-8") as f:
-            json.dump({"pred": pred, "answers": json_obj["answers"], "all_classes": json_obj["all_classes"], "length": json_obj["length"]}, f, ensure_ascii=False)
+            json.dump({"pred": pred, "answers": json_obj["answers"], "all_classes": json_obj["all_classes"], "length": json_obj["length"], "length_filtered": average_tokens_in_kv_cache}, f, ensure_ascii=False)
             f.write('\n')
     dist.destroy_process_group()
 
@@ -69,6 +81,11 @@ def load_model_and_tokenizer(path, model_name, device):
     tokenizer = AutoTokenizer.from_pretrained(path)
     model = AutoModelForCausalLM.from_pretrained(path, torch_dtype=torch.bfloat16, device_map="auto")
     model = model.eval()
+
+    state_dict = torch.load("../../llama3/outputs/g_predictors.pt")
+    model.load_state_dict(state_dict, strict=False)
+    model.gating_mode = 3
+
     return model, tokenizer
 
 if __name__ == '__main__':
