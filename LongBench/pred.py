@@ -12,21 +12,31 @@ import torch.multiprocessing as mp
 
 def parse_args(args=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=str, default=None, choices=["llama3.2-1b"])
+    parser.add_argument('--model', type=str, default=None)
     parser.add_argument('--e', action='store_true', help="Evaluate on LongBench-E")
     return parser.parse_args(args)
 
 # This is the customized building prompt for chat models
 def build_chat(tokenizer, prompt, model_name):
-    messages = [
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": prompt},
-    ]
+    additional_kwargs = {}
+
+    if "llama" in model_name.lower():
+        messages = [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": prompt}
+        ]
+    else:
+        messages = [
+            {"role": "user", "content": prompt}
+        ]
+        additional_kwargs = {"enable_thinking": False}
+
     return tokenizer.apply_chat_template(
         messages,
         add_generation_prompt=True,
         return_dict=True,
-        return_tensors="pt"
+        return_tensors="pt",
+        **additional_kwargs
     )
 
 def get_pred(rank, world_size, data, max_length, max_gen, prompt_format, dataset, device, model_name, model2path, out_path):
