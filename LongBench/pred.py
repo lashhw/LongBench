@@ -51,6 +51,9 @@ def get_pred(rank, world_size, data, max_length, max_gen, prompt_format, dataset
         if dataset == "samsum": # prevent illegal output on samsum (model endlessly repeat "\nDialogue"), might be a prompting issue
             output = model.generate(
                 **inputs,
+                do_sample=False,
+                temperature=None,
+                top_p=None,
                 max_new_tokens=max_gen,
                 min_length=context_length+1,
                 eos_token_id=[tokenizer.eos_token_id, tokenizer.encode("\n", add_special_tokens=False)[-1]],
@@ -60,6 +63,9 @@ def get_pred(rank, world_size, data, max_length, max_gen, prompt_format, dataset
         else:
             output = model.generate(
                 **inputs,
+                do_sample=False,
+                temperature=None,
+                top_p=None,
                 max_new_tokens=max_gen,
                 pad_token_id=tokenizer.eos_token_id,
                 past_key_values=past_key_values
